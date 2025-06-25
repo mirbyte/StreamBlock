@@ -1,4 +1,11 @@
 # StreamBlock
+
+[![License](https://img.shields.io/github/license/mirbyte/StreamBlock?color=purple)](https://raw.githubusercontent.com/mirbyte/StreamBlock/master/LICENSE)
+![Size](https://img.shields.io/github/repo-size/mirbyte/StreamBlock?label=size&color=purple)
+[![Download Count](https://img.shields.io/github/downloads/mirbyte/StreamBlock/total?color=purple)](https://github.com/mirbyte/StreamBlock/releases)
+[![Latest Release](https://img.shields.io/github/release/mirbyte/StreamBlock.svg?color=purple)](https://github.com/mirbyte/StreamBlock/releases/latest)
+![LastCommit](https://img.shields.io/github/last-commit/mirbyte/StreamBlock?color=purple&label=repo+updated)
+
 A lightweight Python application that creates draggable colored overlay blocks on your screen.
 
 ## Features
