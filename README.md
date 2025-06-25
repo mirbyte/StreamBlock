@@ -11,7 +11,7 @@ A lightweight Python application that creates draggable colored overlay blocks o
 
 ## Download
 - **Windows**: Download the package from the **[releases page](https://github.com/mirbyte/StreamBlock/releases/latest)**
-- **Others**: Clone the project folder and run the .py (*you might have to remove the `win32gui` and `win32api` imports, not tested*)
+- **Others**: Clone this project and run the .py (*you might have to remove the `win32gui` and `win32api` imports, not tested*)
 
 ## Features
 - **Draggable Blocks**: Create movable colored rectangles anywhere on your screen
