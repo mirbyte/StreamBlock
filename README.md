@@ -1,9 +1,9 @@
 # StreamBlock
-[![License](https://gradgen.boris.sh/github/license/mirbyte/StreamBlock?gradient=000000,404040,9146FF)](https://raw.githubusercontent.com/mirbyte/StreamBlock/master/LICENSE)
-![Size](https://gradgen.boris.sh/github/repo-size/mirbyte/StreamBlock?label=size&gradient=000000,404040,9146FF)
-[![Download Count](https://gradgen.boris.sh/github/downloads/mirbyte/StreamBlock/total?gradient=000000,404040,9146FF)](https://github.com/mirbyte/StreamBlock/releases)
-[![Latest Release](https://gradgen.boris.sh/github/release/mirbyte/StreamBlock?gradient=000000,404040,9146FF)](https://github.com/mirbyte/StreamBlock/releases/latest)
-![LastCommit](https://gradgen.boris.sh/github/last-commit/mirbyte/StreamBlock?label=repo%20updated&gradient=000000,404040,9146FF)
+[![License](https://img.shields.io/github/license/mirbyte/StreamBlock?color=black)](https://raw.githubusercontent.com/mirbyte/StreamBlock/master/LICENSE)
+![Size](https://img.shields.io/github/repo-size/mirbyte/StreamBlock?label=size&color=black)
+[![Download Count](https://img.shields.io/github/downloads/mirbyte/StreamBlock/total?color=black)](https://github.com/mirbyte/StreamBlock/releases)
+[![Latest Release](https://img.shields.io/github/release/mirbyte/StreamBlock.svg?color=black)](https://github.com/mirbyte/StreamBlock/releases/latest)
+![LastCommit](https://img.shields.io/github/last-commit/mirbyte/StreamBlock?color=black&label=repo+updated)
 
 A lightweight Python application that creates draggable colored overlay blocks on your screen.
 
