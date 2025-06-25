@@ -1,3 +1,5 @@
+![StreamBlock_logo_smaller](https://github.com/user-attachments/assets/9ea5b879-a986-4ae7-8f61-460851b8bb62)
+
 # StreamBlock
 [![License](https://img.shields.io/github/license/mirbyte/StreamBlock?color=black)](https://raw.githubusercontent.com/mirbyte/StreamBlock/master/LICENSE)
 ![Size](https://img.shields.io/github/repo-size/mirbyte/StreamBlock?label=size&color=black)
@@ -46,6 +48,13 @@ A lightweight Python application that creates draggable colored overlay blocks o
 
 <br>
 
-![StreamBlock_logo_small](https://github.com/user-attachments/assets/817db0da-9c06-4d42-b9cc-019d15fc2542)
+![example_twitch](https://github.com/user-attachments/assets/73c708f9-6a21-488b-9972-8ae77bd7d7b9)
+
+
+![gui](https://github.com/user-attachments/assets/c67b5a59-179f-466f-b600-60851fa7e23c)
+
+
+
+
 
 
