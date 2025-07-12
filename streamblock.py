@@ -800,7 +800,6 @@ class OverlayApp(tk.Tk):
         info_text = """Dynamic Color Mode
 
 • 8 detection points: 4 corners + 4 edges
-• Intelligent detection: Only updates when colors actually change
 • 2-second detection intervals with 1-second transitions"""
         
         messagebox.showinfo("Dynamic Color Info", info_text)
@@ -812,8 +811,8 @@ class OverlayApp(tk.Tk):
         if self.use_dynamic_color:
             # Show CPU warning when enabling dynamic mode
             warning_result = messagebox.askyesno("CPU Usage Warning",
-                                               "⚠️ Dynamic color mode uses background processing. "
-                                               "v0.3 has optimized performance significantly.\n\n"
+                                               "⚠️ Dynamic color mode uses contunuous background processing. "
+                                               "Expecially some older CPUs will struggle to run this.\n\n"
                                                "Continue with dynamic mode?")
             if warning_result:
                 self.color_preview.config(text="8PT", bg="#4ECDC4")
@@ -978,5 +977,4 @@ class OverlayApp(tk.Tk):
 if __name__ == "__main__":
     app = OverlayApp()
     app.mainloop()
-
 
