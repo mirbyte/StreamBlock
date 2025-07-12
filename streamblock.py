@@ -799,14 +799,9 @@ class OverlayApp(tk.Tk):
         """Show information about dynamic mode"""
         info_text = """Dynamic Color Mode
 
-Uses optimized background processing:
-
-• 8 detection points: 4 corners + 4 edges for complete coverage
+• 8 detection points: 4 corners + 4 edges
 • Intelligent detection: Only updates when colors actually change
-• 2-second detection intervals with smooth 1-second transitions
-• Enhanced thread safety and error handling
-
-v0.3 improvements reduce CPU usage significantly compared to v0.2."""
+• 2-second detection intervals with 1-second transitions"""
         
         messagebox.showinfo("Dynamic Color Info", info_text)
 
