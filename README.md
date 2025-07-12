@@ -50,7 +50,7 @@ A lightweight Python application that creates draggable colored overlay blocks o
 
 ![example_twitch](https://github.com/user-attachments/assets/73c708f9-6a21-488b-9972-8ae77bd7d7b9)
 
-![gui](https://github.com/user-attachments/assets/c67b5a59-179f-466f-b600-60851fa7e23c)
+
 
 ![before2](https://github.com/user-attachments/assets/7fa04ad4-20ba-4066-ac16-6b5ef5820f4c)
 
