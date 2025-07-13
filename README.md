@@ -7,7 +7,7 @@
 [![Latest Release](https://img.shields.io/github/release/mirbyte/StreamBlock.svg?color=black)](https://github.com/mirbyte/StreamBlock/releases/latest)
 ![LastCommit](https://img.shields.io/github/last-commit/mirbyte/StreamBlock?color=black&label=repo+updated)
 
-A lightweight Python application that creates draggable colored overlay blocks on your screen.
+A Python application that creates draggable colored overlay blocks on your screen.
 
 ## Download
 - **Windows**: Download the package from the **[releases page](https://github.com/mirbyte/StreamBlock/releases/latest)**
