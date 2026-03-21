@@ -53,10 +53,10 @@ class Config:
 # All other hues are matched to OBS Dark: neutral greys with no blue/purple
 # tint, muted desaturated accent blue, pure white primary text.
 class Theme:
-    BG          = "#1a1a1a"   # main window background (darker than OBS)
-    BG_INPUT    = "#2d2d2d"   # input / control background (OBS control bg)
-    BORDER      = "#3d3d3d"   # subtle dividers (OBS separator tone)
-    ACCENT      = "#4c75c9"   # primary accent (OBS muted blue)
+    BG          = "#1a1a1a"   # main window background
+    BG_INPUT    = "#2d2d2d"   # input / control background
+    BORDER      = "#3d3d3d"   # subtle dividers
+    ACCENT      = "#4c75c9"   # primary accent
     SUCCESS     = "#2a4a38"   # save button
     SUCCESS_FG  = "#6dbf8e"
     LOAD        = "#243152"   # load button
@@ -64,7 +64,7 @@ class Theme:
     DANGER      = "#3d2020"   # clear button
     DANGER_FG   = "#d96060"
     FG          = "#ffffff"   # primary text — pure white
-    FG_DIM      = "#707070"   # secondary / muted text (OBS disabled tone)
+    FG_DIM      = "#707070"   # secondary / muted text
     FG_LABEL    = "#aaaaaa"   # section labels
     DYNAMIC_ON  = "#1e3d2c"
     DYNAMIC_FG  = "#5ab87a"
