@@ -49,9 +49,6 @@ class Config:
     SCREEN_CACHE_DURATION = 5.0
 
 # --- Theme ---
-# Background is intentionally darker than OBS (~#1a1a1a vs OBS ~#282828).
-# All other hues are matched to OBS Dark: neutral greys with no blue/purple
-# tint, muted desaturated accent blue, pure white primary text.
 class Theme:
     BG          = "#1a1a1a"   # main window background
     BG_INPUT    = "#2d2d2d"   # input / control background
