@@ -11,50 +11,71 @@ A Python application that creates draggable colored overlay blocks on your scree
 
 ## Download
 - **Windows**: Download the package from the **[releases page](https://github.com/mirbyte/StreamBlock/releases/latest)**
-- **Others**: Clone this project and run the .py (*you might have to remove the `win32gui` and `win32api` imports, not tested*)
+- **Others**: Clone this project and run the .py (*you may need to remove the `win32gui` and `win32api` imports — not tested on non-Windows*)
 
 ## Features
-- **Draggable Blocks**: Create movable colored rectangles anywhere on your screen
-- **Resizable**: Easily adjust block dimensions with right-click drag
-- **Color Customization**: Choose any color for your blocks
+- **Draggable & Resizable Blocks**: Create movable colored rectangles anywhere on your screen
 - **Always on Top**: Blocks stay visible over all other applications
-- **Save/Load Layouts**: Preserve your block arrangements for future use
-- **Real-time Controls**: Modify, move, and delete blocks on the fly
+- **Color Customization**: Pick any static color per block
+- **Dynamic Color Mode**: Blocks automatically sample the 8 surrounding screen points and adapt their color or gradient in real time
+- **Gradient Support**: When surrounding colors differ enough, the block renders a smooth multi-point gradient instead of a flat color
+- **Save/Load Layouts**: Preserve your block arrangements for future sessions
+- **DPI Aware**: Correct sizing and positioning on 4K and high-DPI displays
 
 ## Usage
-1. **Create blocks**:
-    - Choose a color using the "Choose Color" button
-    - Click "➕ Add New Block" to create a new overlay
 
-2. **Control blocks**:
-    - **Move**: Left-click and drag
-    - **Resize**: Right-click and drag from bottom-right
-    - **Delete**: Double-click on the block
-    - **Change Color**: Middle-click on the block
+### Creating blocks
+1. Choose a color with the **Pick Color** button, or enable **Dynamic** mode to have the block match its surroundings automatically
+2. Click **+ Add Block** to place a new overlay
+
+### Controlling blocks
+| Action | Input |
+|---|---|
+| Move | Left-click drag |
+| Resize | Right-click drag (from bottom-right) |
+| Delete | Double-click |
+| Change color | Middle-click *(static blocks only)* |
+
+### Dynamic block indicators
+A small tag in the top-left corner of each dynamic block shows its current state:
+
+| Tag | Meaning |
+|---|---|
+| `D` | Dynamic mode, solid color |
+| `D+` | Dynamic mode, gradient active |
+| `D>` | Dynamic mode, transitioning |
+
+## Dependencies
+
+| Package | Purpose |
+|---|---|
+| `tkinter` | GUI framework (Python standard library) |
+| `Pillow` | Image processing and gradient rendering |
+| `pywin32` | DPI awareness and screen metrics (Windows) |
+| `numpy` *(optional)* | Accelerated gradient computation, strongly recommended for dynamic mode |
+
+Install with:
+```
+pip install pillow pywin32 numpy
+```
 
 ## Technical Details
-- **Framework**: tkinter (Python's standard GUI library)
-- **Image Processing**: Pillow (PIL)
-- **Windows Integration**: pywin32 for DPI awareness and screen metrics
-- **Data Storage**: JSON for layout persistence
-
+- **Thread model**: Color detection and animation run on background threads; all Tkinter calls are made exclusively from the main thread via a `_ui_tick` polling loop
+- **Gradient rendering**: 8-point bilinear interpolation, vectorized with numpy when available and falling back to pure Python otherwise
+- **Screen sampling**: 12×12px grabs at 8 points around each block's edges every 2 seconds, with 1-second eased transitions between states
+- **Layout storage**: JSON
 
 ## Use Cases
 - **Live Streams**: Hide burned-in ads or watermarks during live stream viewing
-- **Live Streaming**: Hide personal information, notifications, or sensitive content
+- **Live Streaming**: Cover personal information, notifications, or sensitive content
 - **Screen Recording**: Block out areas you don't want recorded
 - **Presentations**: Cover content until ready to reveal
-- **Privacy**: Temporarily hide desktop elements during screen sharing
+- **Privacy**: Hide desktop elements during screen sharing
 
 <br>
 
 ![example_twitch](https://github.com/user-attachments/assets/73c708f9-6a21-488b-9972-8ae77bd7d7b9)
 
-
-![gui](https://github.com/user-attachments/assets/23086599-1b7d-4b31-ae3a-8478ba198cf4)
-
-
 ![before2](https://github.com/user-attachments/assets/7fa04ad4-20ba-4066-ac16-6b5ef5820f4c)
 
 ![after2](https://github.com/user-attachments/assets/68c265d7-6bd6-4538-a8e9-4b51ce0aa386)
-
