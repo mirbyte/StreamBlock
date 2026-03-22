@@ -51,16 +51,17 @@ class Config:
 # --- Theme ---
 class Theme:
     BG          = "#1a1a1a"   # main window background
+    BG_TITLEBAR = "#232323"   # title bar, slightly lighter than content area
     BG_INPUT    = "#2d2d2d"   # input / control background
     BORDER      = "#3d3d3d"   # subtle dividers
-    ACCENT      = "#4c75c9"   # primary accent
+    ACCENT      = "#ffffff"   # primary accent
     SUCCESS     = "#2a4a38"   # save button
     SUCCESS_FG  = "#6dbf8e"
     LOAD        = "#243152"   # load button
     LOAD_FG     = "#7aaaf0"
     DANGER      = "#3d2020"   # clear button
     DANGER_FG   = "#d96060"
-    FG          = "#ffffff"   # primary text — pure white
+    FG          = "#ffffff"   # primary text
     FG_DIM      = "#707070"   # secondary / muted text
     FG_LABEL    = "#aaaaaa"   # section labels
     DYNAMIC_ON  = "#1e3d2c"
@@ -138,18 +139,19 @@ def get_contrasting_color(bg_color):
         return "#FFFFFF"
 
 def analyze_single_pixel_area(image):
-    """Fast single pixel color analysis with validation"""
+    """Sample the center pixel of the given image area.
+    No quantization: raw pixel values are used for smooth gradient detection."""
     try:
         if not image or image.size[0] == 0 or image.size[1] == 0:
             return "#808080"
 
         w, h = image.size
-        center_pixel = image.getpixel((w//2, h//2))
+        center_pixel = image.getpixel((w // 2, h // 2))
         r, g, b = center_pixel[:3]
 
-        r = max(0, min(255, (r // 16) * 16))
-        g = max(0, min(255, (g // 16) * 16))
-        b = max(0, min(255, (b // 16) * 16))
+        r = max(0, min(255, r))
+        g = max(0, min(255, g))
+        b = max(0, min(255, b))
 
         return f"#{r:02x}{g:02x}{b:02x}"
     except Exception:
@@ -218,12 +220,16 @@ def should_use_gradient(colors):
         return False
 
 def create_advanced_gradient(width, height, colors):
-    """Create sophisticated multi-point gradient."""
+    """Create a full 8-point gradient using all sampled directions.
+    All 8 directions (including left and right midpoints) are passed through
+    to the underlying renderer so no sampled data is discarded."""
     try:
         if width <= 0 or height <= 0:
             return Image.new('RGB', (1, 1), hex_to_rgb('#808080'))
 
-        directions = ['top_left', 'top', 'top_right', 'bottom_left', 'bottom', 'bottom_right']
+        # All 8 sampled directions are used
+        directions = ['top_left', 'top', 'top_right', 'left', 'right',
+                      'bottom_left', 'bottom', 'bottom_right']
         color_points = {d: hex_to_rgb(colors.get(d, '#808080')) for d in directions}
 
         if HAS_NUMPY:
@@ -236,42 +242,68 @@ def create_advanced_gradient(width, height, colors):
         return Image.new('RGB', (max(1, width), max(1, height)), hex_to_rgb('#808080'))
 
 def _create_gradient_numpy(width, height, color_points):
-    """Vectorized gradient using numpy (fast path)"""
-    x_norm = np.linspace(0.0, 1.0, width, dtype=np.float32)
+    """Vectorized 8-point gradient using numpy (fast path).
+
+    The grid is divided into three horizontal bands:
+      - Top band   (y 0.0..0.5): top_left / top / top_right row blended into left / right row
+      - Bottom band (y 0.5..1.0): left / right row blended into bottom_left / bottom / bottom_right row
+
+    This means all 8 sampled colors influence the final image.
+    """
+    x_norm = np.linspace(0.0, 1.0, width,  dtype=np.float32)
     y_norm = np.linspace(0.0, 1.0, height, dtype=np.float32)
-    X, Y = np.meshgrid(x_norm, y_norm)
+    X, Y   = np.meshgrid(x_norm, y_norm)
 
     tl = np.array(color_points['top_left'],    dtype=np.float32)
     t  = np.array(color_points['top'],         dtype=np.float32)
     tr = np.array(color_points['top_right'],   dtype=np.float32)
+    l  = np.array(color_points['left'],        dtype=np.float32)
+    r  = np.array(color_points['right'],       dtype=np.float32)
     bl = np.array(color_points['bottom_left'], dtype=np.float32)
     b  = np.array(color_points['bottom'],      dtype=np.float32)
     br = np.array(color_points['bottom_right'],dtype=np.float32)
 
+    # Piecewise x interpolation helpers
     x2  = np.clip(X * 2,         0.0, 1.0)[..., np.newaxis]
     x2b = np.clip((X - 0.5) * 2, 0.0, 1.0)[..., np.newaxis]
     left_half = X <= 0.5
 
+    # Top row: top_left -> top -> top_right
     top_row = np.where(left_half[..., np.newaxis],
                        tl * (1 - x2)  + t  * x2,
                        t  * (1 - x2b) + tr * x2b)
 
+    # Middle row: left -> right (only 2 points, simple lerp)
+    mid_row = l * (1 - X[..., np.newaxis]) + r * X[..., np.newaxis]
+
+    # Bottom row: bottom_left -> bottom -> bottom_right
     bot_row = np.where(left_half[..., np.newaxis],
                        bl * (1 - x2)  + b  * x2,
                        b  * (1 - x2b) + br * x2b)
 
-    Y3 = Y[..., np.newaxis]
-    final = top_row * (1 - Y3) + bot_row * Y3
+    # Piecewise y blending: top..mid for upper half, mid..bottom for lower half
+    y2  = np.clip(Y * 2,         0.0, 1.0)[..., np.newaxis]
+    y2b = np.clip((Y - 0.5) * 2, 0.0, 1.0)[..., np.newaxis]
+    top_half = Y <= 0.5
+
+    final = np.where(top_half[..., np.newaxis],
+                     top_row * (1 - y2)  + mid_row * y2,
+                     mid_row * (1 - y2b) + bot_row * y2b)
 
     img_array = np.clip(final, 0, 255).astype(np.uint8)
     return Image.fromarray(img_array, 'RGB')
 
 def _create_gradient_python(width, height, color_points):
-    """Pure Python fallback gradient"""
+    """Pure Python fallback gradient using all 8 sampled color points.
+
+    Mirrors the three-band approach of the numpy path:
+      top band blends top row into the left/right midpoints,
+      bottom band blends the left/right midpoints into the bottom row.
+    """
     img = Image.new('RGB', (width, height))
     pixels = []
 
-    w_1 = max(1, width - 1)
+    w_1 = max(1, width  - 1)
     h_1 = max(1, height - 1)
 
     for y in range(height):
@@ -282,10 +314,17 @@ def _create_gradient_python(width, height, color_points):
             top_color = interpolate_3_points(
                 color_points['top_left'], color_points['top'], color_points['top_right'], x_norm
             )
+            mid_color = interpolate_rgb_tuple(
+                color_points['left'], color_points['right'], x_norm
+            )
             bottom_color = interpolate_3_points(
                 color_points['bottom_left'], color_points['bottom'], color_points['bottom_right'], x_norm
             )
-            pixels.append(interpolate_rgb_tuple(top_color, bottom_color, y_norm))
+
+            if y_norm <= 0.5:
+                pixels.append(interpolate_rgb_tuple(top_color, mid_color, y_norm * 2))
+            else:
+                pixels.append(interpolate_rgb_tuple(mid_color, bottom_color, (y_norm - 0.5) * 2))
 
     img.putdata(pixels)
     return img
@@ -363,14 +402,14 @@ class BlackBlock(tk.Toplevel):
 
             self.draw_block_smooth(w, h, use_gradient=False)
 
-            self.canvas.bind("<Button-1>", self.start_drag)
-            self.canvas.bind("<B1-Motion>", self.do_drag)
+            self.canvas.bind("<Button-1>",        self.start_drag)
+            self.canvas.bind("<B1-Motion>",       self.do_drag)
             self.canvas.bind("<ButtonRelease-1>", self.stop_drag)
-            self.canvas.bind("<Button-3>", self.start_resize)
-            self.canvas.bind("<B3-Motion>", self.do_resize)
+            self.canvas.bind("<Button-3>",        self.start_resize)
+            self.canvas.bind("<B3-Motion>",       self.do_resize)
             self.canvas.bind("<ButtonRelease-3>", self.stop_resize)
             self.canvas.bind("<Double-Button-1>", self.delete_block)
-            self.canvas.bind("<Button-2>", self.change_color)
+            self.canvas.bind("<Button-2>",        self.change_color)
 
             if self.is_dynamic:
                 self.start_dynamic_color()
@@ -408,6 +447,7 @@ class BlackBlock(tk.Toplevel):
     def _color_detection_loop(self):
         """Background thread: samples screen colors at 8 points around the block
         every DETECTION_INTERVAL seconds and triggers a transition when colors change."""
+        last_detection_time = 0
 
         while not self._stop_event.is_set() and not self._is_destroyed:
             try:
@@ -426,27 +466,43 @@ class BlackBlock(tk.Toplevel):
                 except tk.TclError:
                     break
 
-                margin = Config.SAMPLE_MARGIN
+                margin      = Config.SAMPLE_MARGIN
                 sample_size = Config.SAMPLE_SIZE
-                sw, sh = get_screen_size()
+                sw, sh      = get_screen_size()
 
                 sample_areas = {
-                    'top_left':     (max(0, x - margin),                                max(0, y - margin),
-                                     max(0, x - margin + sample_size),                   max(0, y - margin + sample_size)),
-                    'top_right':    (min(sw - sample_size, x + w + margin - sample_size), max(0, y - margin),
-                                     min(sw, x + w + margin),                            max(0, y - margin + sample_size)),
-                    'bottom_left':  (max(0, x - margin),                                min(sh - sample_size, y + h + margin - sample_size),
-                                     max(0, x - margin + sample_size),                   min(sh, y + h + margin)),
-                    'bottom_right': (min(sw - sample_size, x + w + margin - sample_size), min(sh - sample_size, y + h + margin - sample_size),
-                                     min(sw, x + w + margin),                            min(sh, y + h + margin)),
-                    'top':          (max(0, x + w//2 - 6),                              max(0, y - margin),
-                                     max(0, x + w//2 + 6),                               max(0, y - margin + sample_size)),
-                    'bottom':       (max(0, x + w//2 - 6),                              min(sh - sample_size, y + h + margin - sample_size),
-                                     max(0, x + w//2 + 6),                               min(sh, y + h + margin)),
-                    'left':         (max(0, x - margin),                                max(0, y + h//2 - 6),
-                                     max(0, x - margin + sample_size),                   max(0, y + h//2 + 6)),
-                    'right':        (min(sw - sample_size, x + w + margin - sample_size), max(0, y + h//2 - 6),
-                                     min(sw, x + w + margin),                            max(0, y + h//2 + 6))
+                    'top_left':     (max(0, x - margin),
+                                     max(0, y - margin),
+                                     max(0, x - margin + sample_size),
+                                     max(0, y - margin + sample_size)),
+                    'top_right':    (min(sw - sample_size, x + w + margin - sample_size),
+                                     max(0, y - margin),
+                                     min(sw, x + w + margin),
+                                     max(0, y - margin + sample_size)),
+                    'bottom_left':  (max(0, x - margin),
+                                     min(sh - sample_size, y + h + margin - sample_size),
+                                     max(0, x - margin + sample_size),
+                                     min(sh, y + h + margin)),
+                    'bottom_right': (min(sw - sample_size, x + w + margin - sample_size),
+                                     min(sh - sample_size, y + h + margin - sample_size),
+                                     min(sw, x + w + margin),
+                                     min(sh, y + h + margin)),
+                    'top':          (max(0, x + w//2 - 6),
+                                     max(0, y - margin),
+                                     max(0, x + w//2 + 6),
+                                     max(0, y - margin + sample_size)),
+                    'bottom':       (max(0, x + w//2 - 6),
+                                     min(sh - sample_size, y + h + margin - sample_size),
+                                     max(0, x + w//2 + 6),
+                                     min(sh, y + h + margin)),
+                    'left':         (max(0, x - margin),
+                                     max(0, y + h//2 - 6),
+                                     max(0, x - margin + sample_size),
+                                     max(0, y + h//2 + 6)),
+                    'right':        (min(sw - sample_size, x + w + margin - sample_size),
+                                     max(0, y + h//2 - 6),
+                                     min(sw, x + w + margin),
+                                     max(0, y + h//2 + 6))
                 }
 
                 new_colors = {}
@@ -547,19 +603,22 @@ class BlackBlock(tk.Toplevel):
                 return
 
             with self._lock:
-                use_gradient = self.should_gradient or self.target_gradient
-                colors_snapshot = self.current_colors.copy()
-                transitioning = self.is_transitioning
+                use_gradient      = self.should_gradient or self.target_gradient
+                colors_snapshot   = self.current_colors.copy()
+                transitioning     = self.is_transitioning
 
             if use_gradient:
-                gradient_img = create_advanced_gradient(w, h, colors_snapshot)
+                gradient_img        = create_advanced_gradient(w, h, colors_snapshot)
                 self.gradient_photo = ImageTk.PhotoImage(gradient_img)
-                solid_color = None
+                solid_color         = None
             else:
                 self.gradient_photo = None
                 solid_color = colors_snapshot.get('top', '#808080') if self.is_dynamic else self.current_color
+                # Write current_color under the lock so background threads
+                # reading it don't race with this main-thread write.
                 if self.is_dynamic:
-                    self.current_color = solid_color
+                    with self._lock:
+                        self.current_color = solid_color
 
             self.draw_block_smooth(w, h, use_gradient=use_gradient,
                                    solid_color=solid_color, transitioning=transitioning)
@@ -583,9 +642,9 @@ class BlackBlock(tk.Toplevel):
     def start_transition(self, new_target_colors):
         """Set new target colors and begin a timed transition toward them."""
         with self._lock:
-            self.target_colors = new_target_colors.copy()
+            self.target_colors        = new_target_colors.copy()
             self.transition_start_time = time.time()
-            self.is_transitioning = True
+            self.is_transitioning      = True
 
     def draw_block_smooth(self, w, h, use_gradient=False, solid_color=None, transitioning=False):
         """Draw the block. Takes all display state as parameters."""
@@ -615,11 +674,11 @@ class BlackBlock(tk.Toplevel):
             if self._is_destroyed or not safe_widget_exists(self):
                 return None
             return {
-                'x': max(0, self.winfo_x()),
-                'y': max(0, self.winfo_y()),
-                'width': max(Config.MIN_BLOCK_SIZE, self.winfo_width()),
-                'height': max(Config.MIN_BLOCK_SIZE, self.winfo_height()),
-                'color': self.base_color,
+                'x':         max(0, self.winfo_x()),
+                'y':         max(0, self.winfo_y()),
+                'width':     max(Config.MIN_BLOCK_SIZE, self.winfo_width()),
+                'height':    max(Config.MIN_BLOCK_SIZE, self.winfo_height()),
+                'color':     self.base_color,
                 'is_dynamic': self.is_dynamic
             }
         except tk.TclError:
@@ -627,8 +686,8 @@ class BlackBlock(tk.Toplevel):
 
     def start_drag(self, event):
         if not self._is_destroyed:
-            self._drag_data["x"] = event.x
-            self._drag_data["y"] = event.y
+            self._drag_data["x"]      = event.x
+            self._drag_data["y"]      = event.y
             self._drag_data["action"] = "move"
             try:
                 self.canvas.config(cursor="fleur")
@@ -638,8 +697,8 @@ class BlackBlock(tk.Toplevel):
     def do_drag(self, event):
         if self._drag_data["action"] == "move" and not self._is_destroyed:
             try:
-                dx = event.x - self._drag_data["x"]
-                dy = event.y - self._drag_data["y"]
+                dx   = event.x - self._drag_data["x"]
+                dy   = event.y - self._drag_data["y"]
                 sw, sh = get_screen_size()
                 new_x = max(0, min(self.winfo_x() + dx, sw - self.winfo_width()))
                 new_y = max(0, min(self.winfo_y() + dy, sh - self.winfo_height()))
@@ -656,8 +715,8 @@ class BlackBlock(tk.Toplevel):
 
     def start_resize(self, event):
         if not self._is_destroyed:
-            self._drag_data["x"] = event.x
-            self._drag_data["y"] = event.y
+            self._drag_data["x"]      = event.x
+            self._drag_data["y"]      = event.y
             self._drag_data["action"] = "resize"
             try:
                 self.canvas.config(cursor="bottom_right_corner")
@@ -667,8 +726,8 @@ class BlackBlock(tk.Toplevel):
     def do_resize(self, event):
         if self._drag_data["action"] == "resize" and not self._is_destroyed:
             try:
-                w = max(30, min(event.x, Config.MAX_BLOCK_WIDTH))
-                h = max(30, min(event.y, Config.MAX_BLOCK_HEIGHT))
+                w  = max(30, min(event.x, Config.MAX_BLOCK_WIDTH))
+                h  = max(30, min(event.y, Config.MAX_BLOCK_HEIGHT))
                 sw, sh = get_screen_size()
 
                 try:
@@ -717,9 +776,9 @@ class BlackBlock(tk.Toplevel):
             else:
                 color = colorchooser.askcolor(initialcolor=self.base_color)[1]
                 if color and color.startswith('#'):
-                    self.base_color = color
-                    self.current_color = color
-                    self.should_gradient = False
+                    self.base_color       = color
+                    self.current_color    = color
+                    self.should_gradient  = False
                     self.is_transitioning = False
                     w, h = self.winfo_width(), self.winfo_height()
                     self.draw_block_smooth(w, h, use_gradient=False, solid_color=color)
@@ -759,15 +818,21 @@ class OverlayApp(tk.Tk):
         super().__init__()
 
         self.title("StreamBlock")
+        self.overrideredirect(True)   # remove native title bar
         self.resizable(False, False)
-        self.configure(bg=Theme.BG)
+        self.configure(bg=Theme.ACCENT)  # accent color shows as 1px border around content
 
-        self.current_color = "#000000"
+        self.current_color    = "#000000"
         self.use_dynamic_color = False
-        self.config_file = Config.CONFIG_FILE
-        self.blocks = []
+        self.config_file      = Config.CONFIG_FILE
+        self.blocks           = []
 
         self._drag_origin = {"x": 0, "y": 0}
+
+        # Inner content frame sits 1px inside the window edge, revealing
+        # the accent-colored window background as a visible border.
+        self._content = tk.Frame(self, bg=Theme.BG)
+        self._content.pack(fill=tk.BOTH, expand=True, padx=1, pady=1)
 
         self.setup_ui()
 
@@ -782,66 +847,85 @@ class OverlayApp(tk.Tk):
         h = min(content_h, max_h)
         self.geometry(f"{w}x{h}")
 
+        # Ensure blocks are cleaned up when the window is closed via the OS
+        # (e.g. Alt+F4 or taskbar close), not just via the in-app close button.
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+
         self.after(5000, self.cleanup_blocks)
+
+    def _on_close(self):
+        """Graceful shutdown: stop all block threads before destroying the window."""
+        self.clear_all_blocks()
+        self.destroy()
 
     # --- UI construction ---
 
     def setup_ui(self):
         self._build_titlebar()
-        _divider(self)
+        _divider(self._content)
         self._build_color_section()
-        _divider(self)
+        _divider(self._content)
         self._build_dynamic_section()
-        _divider(self)
+        _divider(self._content)
         self._build_actions()
-        _divider(self)
+        _divider(self._content)
         self._build_layout_section()
-        _divider(self)
+        _divider(self._content)
         self._build_controls_section()
 
-    def _bind_drag_recursive(self, widget):
-        """Bind drag handlers to a widget and all its children."""
-        widget.bind("<Button-1>", self._drag_start)
+    def _bind_drag_recursive(self, widget, exclude=()):
+        """Bind drag handlers to a widget and all its children, skipping excluded widgets."""
+        if widget in exclude:
+            return
+        widget.bind("<Button-1>",  self._drag_start)
         widget.bind("<B1-Motion>", self._drag_move)
         for child in widget.winfo_children():
-            self._bind_drag_recursive(child)
+            self._bind_drag_recursive(child, exclude)
 
     def _build_titlebar(self):
-        bar = tk.Frame(self, bg=Theme.BG, cursor="fleur")
+        bar = tk.Frame(self._content, bg=Theme.BG_TITLEBAR, cursor="fleur")
         bar.pack(fill=tk.X, padx=0, pady=0)
 
         tk.Label(bar, text="StreamBlock",
                  font=Theme.FONT_TITLE,
-                 bg=Theme.BG, fg=Theme.FG,
+                 bg=Theme.BG_TITLEBAR, fg=Theme.FG,
                  cursor="fleur").pack(side=tk.LEFT, padx=16, pady=12)
 
-        tk.Label(bar, text="v0.4",
+        tk.Label(bar, text="v0.5",
                  font=("Segoe UI", 8),
-                 bg=Theme.BG, fg=Theme.FG_DIM,
+                 bg=Theme.BG_TITLEBAR, fg=Theme.FG_DIM,
                  cursor="fleur").pack(side=tk.LEFT, pady=12)
 
-        # Drag handle on the right so there is always a large grabbable area
-        tk.Label(bar, text="  \u28FF  ",
-                 font=("Segoe UI", 10),
-                 bg=Theme.BG, fg=Theme.FG_DIM,
-                 cursor="fleur").pack(side=tk.RIGHT, padx=12)
+        # Close button fills the full height of the title bar so it is square.
+        close_btn = tk.Label(bar, text="\u00d7",
+                             font=("Segoe UI", 13),
+                             bg=Theme.BG_TITLEBAR, fg=Theme.FG_DIM,
+                             cursor="hand2", width=3)
+        close_btn.pack(side=tk.RIGHT, fill=tk.Y)
+        close_btn.bind("<Button-1>", lambda e: self._on_close())
+        close_btn.bind("<Enter>",    lambda e: close_btn.config(bg="#5a1a1a", fg=Theme.FG))
+        close_btn.bind("<Leave>",    lambda e: close_btn.config(bg=Theme.BG_TITLEBAR, fg=Theme.FG_DIM))
 
-        # Bind drag to the frame and every child (labels eat events by default)
-        self._bind_drag_recursive(bar)
+        # Drag handle: large grabbable area between title and close button.
+        tk.Label(bar, text="\u28FF",
+                 font=("Segoe UI", 10),
+                 bg=Theme.BG_TITLEBAR, fg=Theme.FG_DIM,
+                 cursor="fleur").pack(side=tk.RIGHT, padx=8)
+
+        # Bind drag to the frame and every child, but not the close button.
+        self._bind_drag_recursive(bar, exclude=(close_btn,))
 
     def _build_color_section(self):
-        _section_label(self, "Block Color")
+        _section_label(self._content, "Block Color")
 
-        row = tk.Frame(self, bg=Theme.BG)
+        row = tk.Frame(self._content, bg=Theme.BG)
         row.pack(fill=tk.X, padx=16, pady=(0, 12))
 
-        # Color swatch
         self.color_swatch = tk.Label(row, text="", width=3,
                                      bg=self.current_color,
                                      relief=tk.FLAT)
-        self.color_swatch.pack(side=tk.LEFT, ipady=10, padx=(0, 8))
+        self.color_swatch.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 8))
 
-        # Hex label
         self.color_hex_label = tk.Label(row, text=self.current_color.upper(),
                                         font=Theme.FONT_MONO,
                                         bg=Theme.BG_INPUT, fg=Theme.FG,
@@ -849,18 +933,18 @@ class OverlayApp(tk.Tk):
         self.color_hex_label.pack(side=tk.LEFT, padx=(0, 8))
 
         btn = _flat_btn(row, "Pick Color", self.choose_color,
-                        bg=Theme.BTN_NEUTRAL, fg=Theme.FG_LABEL)
+                        bg="#383838", fg=Theme.FG)
         btn.pack(side=tk.LEFT)
 
     def _build_dynamic_section(self):
-        _section_label(self, "Detection Mode")
+        _section_label(self._content, "Detection Mode")
 
-        row = tk.Frame(self, bg=Theme.BG)
+        row = tk.Frame(self._content, bg=Theme.BG)
         row.pack(fill=tk.X, padx=16, pady=(0, 12))
 
-        self.dynamic_var = tk.BooleanVar(value=False)
+        # use_dynamic_color is a plain bool on the instance; no BooleanVar needed.
         self._dyn_btn = _flat_btn(row, "Static", self._toggle_dynamic,
-                                  bg=Theme.BTN_NEUTRAL, fg=Theme.FG_LABEL, padx=14, pady=6)
+                                  bg="#383838", fg=Theme.FG, padx=14, pady=6)
         self._dyn_btn.pack(side=tk.LEFT, padx=(0, 8))
 
         self._dyn_status = tk.Label(row, text="Fixed color",
@@ -873,9 +957,9 @@ class OverlayApp(tk.Tk):
                   padx=6, pady=4).pack(side=tk.RIGHT)
 
     def _build_actions(self):
-        _section_label(self, "Blocks")
+        _section_label(self._content, "Blocks")
 
-        row = tk.Frame(self, bg=Theme.BG)
+        row = tk.Frame(self._content, bg=Theme.BG)
         row.pack(fill=tk.X, padx=16, pady=(0, 12))
 
         add_btn = _flat_btn(row, "+ Add Block", self.add_block,
@@ -889,9 +973,9 @@ class OverlayApp(tk.Tk):
                   padx=12, pady=8).pack(side=tk.LEFT)
 
     def _build_layout_section(self):
-        _section_label(self, "Layout")
+        _section_label(self._content, "Layout")
 
-        row = tk.Frame(self, bg=Theme.BG)
+        row = tk.Frame(self._content, bg=Theme.BG)
         row.pack(fill=tk.X, padx=16, pady=(0, 12))
 
         _flat_btn(row, "Save", self.save_layout,
@@ -908,16 +992,16 @@ class OverlayApp(tk.Tk):
         self._layout_status.pack(side=tk.LEFT, padx=10)
 
     def _build_controls_section(self):
-        _section_label(self, "Controls")
+        _section_label(self._content, "Controls")
 
         controls = [
-            ("Left-drag",         "Move block"),
-            ("Right-drag",        "Resize block"),
-            ("Double-click",      "Delete block"),
-            ("Middle-click",      "Change color (static)"),
+            ("Left-drag",    "Move block"),
+            ("Right-drag",   "Resize block"),
+            ("Double-click", "Delete block"),
+            ("Middle-click", "Change color (static)"),
         ]
 
-        panel = tk.Frame(self, bg=Theme.BG)
+        panel = tk.Frame(self._content, bg=Theme.BG)
         panel.pack(fill=tk.X, padx=16, pady=(0, 14))
 
         for key, desc in controls:
@@ -933,22 +1017,24 @@ class OverlayApp(tk.Tk):
                      font=("Segoe UI", 8),
                      bg=Theme.BG, fg=Theme.FG_DIM).pack(side=tk.LEFT, padx=8)
 
-        # Dynamic indicators legend
-        ind_row = tk.Frame(panel, bg=Theme.BG)
-        ind_row.pack(fill=tk.X, pady=(8, 0))
-
-        tk.Label(ind_row, text="Block indicators:",
+        # Dynamic indicators legend — label on its own line, tags on the line below
+        # so nothing gets clipped at the panel edge.
+        tk.Label(panel, text="Block indicators:",
                  font=("Segoe UI", 8),
-                 bg=Theme.BG, fg=Theme.FG_DIM).pack(side=tk.LEFT)
+                 bg=Theme.BG, fg=Theme.FG_DIM,
+                 anchor="w").pack(fill=tk.X, pady=(8, 2))
+
+        ind_row = tk.Frame(panel, bg=Theme.BG)
+        ind_row.pack(fill=tk.X)
 
         for tag, tip in [("D", "solid"), ("D+", "gradient"), ("D>", "transitioning")]:
             tk.Label(ind_row, text=tag,
                      font=("Consolas", 8),
                      bg=Theme.BG_INPUT, fg=Theme.ACCENT,
-                     padx=4, pady=1).pack(side=tk.LEFT, padx=(6, 2))
+                     padx=4, pady=1).pack(side=tk.LEFT, padx=(0, 2))
             tk.Label(ind_row, text=tip,
                      font=("Segoe UI", 8),
-                     bg=Theme.BG, fg=Theme.FG_DIM).pack(side=tk.LEFT, padx=(0, 4))
+                     bg=Theme.BG, fg=Theme.FG_DIM).pack(side=tk.LEFT, padx=(0, 12))
 
     # --- Window dragging (title bar only) ---
 
@@ -967,7 +1053,10 @@ class OverlayApp(tk.Tk):
     # --- Dynamic mode toggle ---
 
     def _toggle_dynamic(self):
-        if not self.dynamic_var.get():
+        """Toggle between static and dynamic color detection.
+        Uses a plain bool (use_dynamic_color) rather than a BooleanVar,
+        since the value is never bound to a Checkbutton widget."""
+        if not self.use_dynamic_color:
             confirmed = messagebox.askyesno(
                 "CPU Usage Warning",
                 "Dynamic color mode uses continuous background processing. "
@@ -977,16 +1066,14 @@ class OverlayApp(tk.Tk):
             if not confirmed:
                 return
 
-            self.dynamic_var.set(True)
             self.use_dynamic_color = True
             self._dyn_btn.config(bg=Theme.DYNAMIC_ON, fg=Theme.DYNAMIC_FG, text="Dynamic")
             self._dyn_status.config(text="8-point screen sampling", fg=Theme.DYNAMIC_FG)
             self.color_swatch.config(bg="#4ECDC4")
             self.color_hex_label.config(text="8PT DYNAMIC")
         else:
-            self.dynamic_var.set(False)
             self.use_dynamic_color = False
-            self._dyn_btn.config(bg=Theme.BTN_NEUTRAL, fg=Theme.FG_LABEL, text="Static")
+            self._dyn_btn.config(bg="#383838", fg=Theme.FG, text="Static")
             self._dyn_status.config(text="Fixed color", fg=Theme.FG_DIM)
             self.color_swatch.config(bg=self.current_color)
             self.color_hex_label.config(text=self.current_color.upper())
@@ -1083,8 +1170,8 @@ class OverlayApp(tk.Tk):
 
                     block = BlackBlock(
                         self,
-                        int(block_data['x']), int(block_data['y']),
-                        int(block_data['width']), int(block_data['height']),
+                        int(block_data['x']),     int(block_data['y']),
+                        int(block_data['width']),  int(block_data['height']),
                         block_data.get('color', '#000000'),
                         block_data.get('is_dynamic', False)
                     )
