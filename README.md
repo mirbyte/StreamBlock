@@ -11,7 +11,7 @@ A Python application that creates draggable colored overlay blocks on your scree
 
 ## Download
 - **Windows**: Download the package from the **[releases page](https://github.com/mirbyte/StreamBlock/releases/latest)**
-- **Others**: Clone this project and run the .py (*you may need to remove the `win32gui` and `win32api` imports — not tested on non-Windows*)
+- **Others**: Clone this project and run the .py *(non-Windows support is not tested)*
 
 ## Features
 - **Draggable & Resizable Blocks**: Create movable colored rectangles anywhere on your screen
@@ -60,7 +60,7 @@ pip install pillow pywin32 numpy
 ```
 
 ## Technical Details
-- **Thread model**: Color detection and animation run on background threads; all Tkinter calls are made exclusively from the main thread via a `_ui_tick` polling loop
+- **Thread model**: Color detection and animation run on background threads; Tkinter calls are made exclusively from the main thread via a `_ui_tick` polling loop
 - **Gradient rendering**: 8-point bilinear interpolation, vectorized with numpy when available and falling back to pure Python otherwise
 - **Screen sampling**: 12×12px grabs at 8 points around each block's edges every 2 seconds, with 1-second eased transitions between states
 - **Layout storage**: JSON

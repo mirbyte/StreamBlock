@@ -1,13 +1,12 @@
-# github.com/mirbyte
-
 import tkinter as tk
 from tkinter import colorchooser, messagebox
 import json
 import os
 from PIL import Image, ImageTk, ImageGrab
 import ctypes
-# win32api is used for accurate DPI-aware screen metrics on Windows.
-# On macOS/Linux it is not available; we fall back to tkinter's measurements.
+from ctypes import wintypes
+# On Windows, use pywin32 when available and ctypes otherwise.
+# On other platforms, use Tkinter for screen metrics.
 try:
     import win32api
     HAS_WIN32 = True
@@ -17,14 +16,14 @@ import threading
 import time
 from threading import Lock, Event
 
-# numpy is used for fast gradient generation; falls back to pure Python if unavailable
+# NumPy is used for fast gradient generation and falls back to pure Python if unavailable.
 try:
     import numpy as np
     HAS_NUMPY = True
 except ImportError:
     HAS_NUMPY = False
 
-# --- Configuration Management ---
+# --- Configuration ---
 class Config:
     # Performance settings
     DETECTION_INTERVAL = 2.0  # seconds
@@ -75,17 +74,36 @@ class Theme:
     FONT_BTN_PRIMARY = ("Segoe UI", 10, "bold")
     FONT_MONO   = ("Consolas", 8)
 
-# --- DPI Awareness ---
-try:
-    ctypes.windll.shcore.SetProcessDpiAwarenessContext(-2)
-except (AttributeError, OSError):
+# --- Windows integration ---
+def configure_dpi_awareness():
+    """Enable the best DPI-awareness mode available before creating a Tk window."""
+    if os.name != "nt":
+        return
+
     try:
-        ctypes.windll.shcore.SetProcessDpiAwareness(1)
+        set_context = ctypes.windll.user32.SetProcessDpiAwarenessContext
+        set_context.argtypes = [ctypes.c_void_p]
+        set_context.restype = wintypes.BOOL
+        # Per-monitor v2 keeps Tk and screenshot coordinates aligned on
+        # mixed-DPI monitor setups.
+        if set_context(ctypes.c_void_p(-4)):
+            return
+    except (AttributeError, OSError):
+        pass
+
+    try:
+        set_awareness = ctypes.windll.shcore.SetProcessDpiAwareness
+        set_awareness.argtypes = [ctypes.c_int]
+        set_awareness.restype = ctypes.c_long
+        set_awareness(2)  # PROCESS_PER_MONITOR_DPI_AWARE
     except (AttributeError, OSError):
         try:
             ctypes.windll.user32.SetProcessDPIAware()
         except (AttributeError, OSError):
             pass
+
+
+configure_dpi_awareness()
 
 # --- Screen size cache (thread-safe) ---
 _screen_size_cache = None
@@ -94,7 +112,8 @@ _screen_size_lock = threading.Lock()
 
 def get_screen_size():
     """Get screen dimensions with thread-safe caching.
-    Uses win32api on Windows for DPI-aware metrics; falls back to tkinter on other platforms."""
+    Uses pywin32 or ctypes on Windows, and Tkinter on other platforms when
+    called from the main thread."""
     global _screen_size_cache, _screen_size_cache_time
     now = time.time()
     with _screen_size_lock:
@@ -103,12 +122,19 @@ def get_screen_size():
         try:
             if HAS_WIN32:
                 result = win32api.GetSystemMetrics(0), win32api.GetSystemMetrics(1)
-            else:
-                # tkinter fallback for macOS / Linux
+            elif os.name == "nt":
+                result = (
+                    ctypes.windll.user32.GetSystemMetrics(0),
+                    ctypes.windll.user32.GetSystemMetrics(1)
+                )
+            elif threading.current_thread() is threading.main_thread():
+                # Tkinter fallback for macOS and Linux
                 _tmp = tk.Tk()
                 _tmp.withdraw()
                 result = _tmp.winfo_screenwidth(), _tmp.winfo_screenheight()
                 _tmp.destroy()
+            else:
+                result = _screen_size_cache or (1920, 1080)
         except Exception:
             result = 1920, 1080
         _screen_size_cache = result
@@ -116,14 +142,14 @@ def get_screen_size():
         return result
 
 def safe_widget_exists(widget):
-    """Check if a Tkinter widget still exists without raising TclError"""
+    """Return whether a Tkinter widget still exists without raising TclError."""
     try:
         return widget.winfo_exists()
     except tk.TclError:
         return False
 
 def get_contrasting_color(bg_color):
-    """Get contrasting color for text visibility"""
+    """Return black or white based on the background's weighted luminance."""
     if not bg_color or not bg_color.startswith('#'):
         return "#FFFFFF"
 
@@ -139,8 +165,8 @@ def get_contrasting_color(bg_color):
         return "#FFFFFF"
 
 def analyze_single_pixel_area(image):
-    """Sample the center pixel of the given image area.
-    No quantization: raw pixel values are used for smooth gradient detection."""
+    """Return the center pixel of an image area as a hex color.
+    The raw center-pixel values are returned without color quantization."""
     try:
         if not image or image.size[0] == 0 or image.size[1] == 0:
             return "#808080"
@@ -158,7 +184,7 @@ def analyze_single_pixel_area(image):
         return "#808080"
 
 def color_distance_fast(color1, color2):
-    """Fast color distance with validation"""
+    """Return summed absolute RGB-channel distance, or 0 for invalid colors."""
     try:
         if not color1 or not color2 or len(color1) < 7 or len(color2) < 7:
             return 0
@@ -171,7 +197,7 @@ def color_distance_fast(color1, color2):
         return 0
 
 def hex_to_rgb(hex_color):
-    """Convert hex color to RGB tuple with validation"""
+    """Convert a hex color to an RGB tuple, using gray for invalid input."""
     try:
         if hex_color.startswith('#'):
             hex_color = hex_color[1:]
@@ -182,7 +208,7 @@ def hex_to_rgb(hex_color):
         return (128, 128, 128)
 
 def rgb_to_hex(rgb):
-    """Convert RGB tuple to hex color with validation"""
+    """Convert an RGB tuple to a hex color, using gray for invalid input."""
     try:
         r, g, b = max(0, min(255, int(rgb[0]))), max(0, min(255, int(rgb[1]))), max(0, min(255, int(rgb[2])))
         return f"#{r:02x}{g:02x}{b:02x}"
@@ -190,7 +216,7 @@ def rgb_to_hex(rgb):
         return "#808080"
 
 def interpolate_color(color1, color2, factor):
-    """Smoothly interpolate between two colors (factor 0.0 to 1.0)"""
+    """Smoothly interpolate between two colors with a factor from 0.0 to 1.0."""
     try:
         factor = max(0.0, min(1.0, factor))
         rgb1 = hex_to_rgb(color1)
@@ -205,7 +231,7 @@ def interpolate_color(color1, color2, factor):
         return color1 if color1 else "#808080"
 
 def should_use_gradient(colors):
-    """Determine if gradient should be used based on 8-point analysis"""
+    """Return whether the eight sampled colors exceed the gradient threshold."""
     try:
         directions = ['top_left', 'top', 'top_right', 'left', 'right', 'bottom_left', 'bottom', 'bottom_right']
         max_diff = 0
@@ -220,14 +246,12 @@ def should_use_gradient(colors):
         return False
 
 def create_advanced_gradient(width, height, colors):
-    """Create a full 8-point gradient using all sampled directions.
-    All 8 directions (including left and right midpoints) are passed through
-    to the underlying renderer so no sampled data is discarded."""
+    """Create a gradient from the eight sampled directions.
+    Both NumPy and pure-Python paths use every sampled color."""
     try:
         if width <= 0 or height <= 0:
             return Image.new('RGB', (1, 1), hex_to_rgb('#808080'))
 
-        # All 8 sampled directions are used
         directions = ['top_left', 'top', 'top_right', 'left', 'right',
                       'bottom_left', 'bottom', 'bottom_right']
         color_points = {d: hex_to_rgb(colors.get(d, '#808080')) for d in directions}
@@ -242,13 +266,11 @@ def create_advanced_gradient(width, height, colors):
         return Image.new('RGB', (max(1, width), max(1, height)), hex_to_rgb('#808080'))
 
 def _create_gradient_numpy(width, height, color_points):
-    """Vectorized 8-point gradient using numpy (fast path).
+    """Vectorized gradient generation using NumPy.
 
-    The grid is divided into three horizontal bands:
-      - Top band   (y 0.0..0.5): top_left / top / top_right row blended into left / right row
-      - Bottom band (y 0.5..1.0): left / right row blended into bottom_left / bottom / bottom_right row
-
-    This means all 8 sampled colors influence the final image.
+    The top and bottom rows interpolate through their three samples. The
+    middle row interpolates between the left and right samples, and the rows
+    are blended vertically.
     """
     x_norm = np.linspace(0.0, 1.0, width,  dtype=np.float32)
     y_norm = np.linspace(0.0, 1.0, height, dtype=np.float32)
@@ -294,11 +316,10 @@ def _create_gradient_numpy(width, height, color_points):
     return Image.fromarray(img_array, 'RGB')
 
 def _create_gradient_python(width, height, color_points):
-    """Pure Python fallback gradient using all 8 sampled color points.
+    """Pure-Python gradient generation using all eight sampled colors.
 
-    Mirrors the three-band approach of the numpy path:
-      top band blends top row into the left/right midpoints,
-      bottom band blends the left/right midpoints into the bottom row.
+    Mirrors the NumPy path by blending the top row into the middle row and the
+    middle row into the bottom row.
     """
     img = Image.new('RGB', (width, height))
     pixels = []
@@ -330,7 +351,7 @@ def _create_gradient_python(width, height, color_points):
     return img
 
 def interpolate_3_points(color1, color2, color3, factor):
-    """Interpolate between 3 colors using factor 0.0 to 1.0"""
+    """Interpolate between three colors with a factor from 0.0 to 1.0."""
     try:
         factor = max(0.0, min(1.0, factor))
         if factor <= 0.5:
@@ -341,7 +362,7 @@ def interpolate_3_points(color1, color2, color3, factor):
         return color1
 
 def interpolate_rgb_tuple(rgb1, rgb2, factor):
-    """Interpolate between two RGB tuples with validation"""
+    """Interpolate between two RGB tuples with input validation."""
     try:
         factor = max(0.0, min(1.0, factor))
         r = int(rgb1[0] * (1 - factor) + rgb2[0] * factor)
@@ -388,6 +409,7 @@ class BlackBlock(tk.Toplevel):
         sw, sh = get_screen_size()
         x = max(0, min(x, sw - w))
         y = max(0, min(y, sh - h))
+        self._geometry = {"x": x, "y": y, "width": w, "height": h}
 
         self._drag_data = {"x": 0, "y": 0, "action": None}
 
@@ -410,6 +432,7 @@ class BlackBlock(tk.Toplevel):
             self.canvas.bind("<ButtonRelease-3>", self.stop_resize)
             self.canvas.bind("<Double-Button-1>", self.delete_block)
             self.canvas.bind("<Button-2>",        self.change_color)
+            self.protocol("WM_DELETE_WINDOW", self.delete_block)
 
             if self.is_dynamic:
                 self.start_dynamic_color()
@@ -435,7 +458,7 @@ class BlackBlock(tk.Toplevel):
             self._animation_thread.start()
 
     def stop_dynamic_color(self):
-        """Signal both background threads to stop and wait for them to exit."""
+        """Request shutdown and wait up to one second for each background thread."""
         self._stop_event.set()
 
         if self._detection_thread and self._detection_thread.is_alive():
@@ -446,7 +469,8 @@ class BlackBlock(tk.Toplevel):
 
     def _color_detection_loop(self):
         """Background thread: samples screen colors at 8 points around the block
-        every DETECTION_INTERVAL seconds and triggers a transition when colors change."""
+        every Config.DETECTION_INTERVAL seconds and starts a transition when a
+        color changes."""
         last_detection_time = 0
 
         while not self._stop_event.is_set() and not self._is_destroyed:
@@ -457,14 +481,11 @@ class BlackBlock(tk.Toplevel):
                     time.sleep(0.1)
                     continue
 
-                if not safe_widget_exists(self):
-                    break
-
-                try:
-                    x, y = self.winfo_x(), self.winfo_y()
-                    w, h = self.winfo_width(), self.winfo_height()
-                except tk.TclError:
-                    break
+                with self._lock:
+                    x = self._geometry["x"]
+                    y = self._geometry["y"]
+                    w = self._geometry["width"]
+                    h = self._geometry["height"]
 
                 margin      = Config.SAMPLE_MARGIN
                 sample_size = Config.SAMPLE_SIZE
@@ -614,8 +635,7 @@ class BlackBlock(tk.Toplevel):
             else:
                 self.gradient_photo = None
                 solid_color = colors_snapshot.get('top', '#808080') if self.is_dynamic else self.current_color
-                # Write current_color under the lock so background threads
-                # reading it don't race with this main-thread write.
+                # Keep current_color synchronized with dynamic solid-color frames.
                 if self.is_dynamic:
                     with self._lock:
                         self.current_color = solid_color
@@ -647,7 +667,7 @@ class BlackBlock(tk.Toplevel):
             self.is_transitioning      = True
 
     def draw_block_smooth(self, w, h, use_gradient=False, solid_color=None, transitioning=False):
-        """Draw the block. Takes all display state as parameters."""
+        """Draw the block using the supplied display state."""
         try:
             if self._is_destroyed:
                 return
@@ -660,7 +680,7 @@ class BlackBlock(tk.Toplevel):
                 color = solid_color if solid_color else self.current_color
                 self.canvas.create_rectangle(0, 0, w, h, fill=color, outline=color)
 
-            # D = solid dynamic, D+ = gradient, D> = transitioning
+            # D = dynamic solid, D+ = gradient, D> = transitioning gradient
             if self.is_dynamic and w > 20 and h > 20:
                 indicator_text = ("D>" if transitioning else "D+") if use_gradient else "D"
                 self.canvas.create_text(5, 5, text=indicator_text,
@@ -703,6 +723,9 @@ class BlackBlock(tk.Toplevel):
                 new_x = max(0, min(self.winfo_x() + dx, sw - self.winfo_width()))
                 new_y = max(0, min(self.winfo_y() + dy, sh - self.winfo_height()))
                 self.geometry(f"+{new_x}+{new_y}")
+                with self._lock:
+                    self._geometry["x"] = new_x
+                    self._geometry["y"] = new_y
             except tk.TclError:
                 pass
 
@@ -742,6 +765,9 @@ class BlackBlock(tk.Toplevel):
 
                 self.geometry(f"{w}x{h}+{curr_x}+{curr_y}")
                 self.canvas.config(width=w, height=h)
+                with self._lock:
+                    self._geometry["width"] = w
+                    self._geometry["height"] = h
 
                 if self.is_dynamic:
                     self.after_idle(self._update_animation_ui)
@@ -759,12 +785,12 @@ class BlackBlock(tk.Toplevel):
         except tk.TclError:
             pass
 
-    def delete_block(self, event):
+    def delete_block(self, event=None):
         try:
+            self._is_destroyed = True
             self.stop_dynamic_color()
             if self in self.master.blocks:
                 self.master.blocks.remove(self)
-            self._is_destroyed = True
             self.destroy()
         except (tk.TclError, AttributeError):
             pass
@@ -817,6 +843,8 @@ class OverlayApp(tk.Tk):
     def __init__(self):
         super().__init__()
 
+        # Keep the controller hidden until its taskbar and topmost styles are ready.
+        self.withdraw()
         self.title("StreamBlock")
         self.overrideredirect(True)   # remove native title bar
         self.resizable(False, False)
@@ -836,9 +864,8 @@ class OverlayApp(tk.Tk):
 
         self.setup_ui()
 
-        # Let tkinter measure all widgets, then size the window to fit exactly.
-        # Cap to 90% of the physical screen height so it never overflows on
-        # small monitors (get_screen_size already applies DPI-aware metrics).
+        # Measure the widgets before sizing the controller.
+        # Cap its height at 90% of the reported screen height on small monitors.
         self.update_idletasks()
         w = 360
         content_h = self.winfo_reqheight()
@@ -847,11 +874,72 @@ class OverlayApp(tk.Tk):
         h = min(content_h, max_h)
         self.geometry(f"{w}x{h}")
 
-        # Ensure blocks are cleaned up when the window is closed via the OS
-        # (e.g. Alt+F4 or taskbar close), not just via the in-app close button.
+        # Clean up blocks when the window manager closes the controller
+        # (for example, with Alt+F4 or the taskbar close action).
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
+        self.after_idle(self._finalize_window_setup)
         self.after(5000, self.cleanup_blocks)
+
+    def _finalize_window_setup(self):
+        """Show the controller in the taskbar and request foreground focus."""
+        if not safe_widget_exists(self):
+            return
+
+        self.attributes("-topmost", True)
+        self._set_windows_appwindow_style()
+        self.deiconify()
+        self._bring_to_front()
+
+        # Retry the foreground request after the taskbar style update settles.
+        self.after(100, self._bring_to_front)
+
+    def _set_windows_appwindow_style(self):
+        """Set Windows styles intended to show the controller in taskbar and Alt+Tab."""
+        if os.name != "nt":
+            return
+
+        try:
+            user32 = ctypes.windll.user32
+            child_hwnd = self.winfo_id()
+
+            user32.GetParent.argtypes = [wintypes.HWND]
+            user32.GetParent.restype = wintypes.HWND
+            hwnd = user32.GetParent(child_hwnd) or child_hwnd
+
+            if ctypes.sizeof(ctypes.c_void_p) == 8:
+                get_style = user32.GetWindowLongPtrW
+                set_style = user32.SetWindowLongPtrW
+                style_type = ctypes.c_ssize_t
+            else:
+                get_style = user32.GetWindowLongW
+                set_style = user32.SetWindowLongW
+                style_type = ctypes.c_long
+
+            get_style.argtypes = [wintypes.HWND, ctypes.c_int]
+            get_style.restype = style_type
+            set_style.argtypes = [wintypes.HWND, ctypes.c_int, style_type]
+            set_style.restype = style_type
+
+            gwl_exstyle = -20
+            ws_ex_toolwindow = 0x00000080
+            ws_ex_appwindow = 0x00040000
+            style = get_style(hwnd, gwl_exstyle)
+            style = (style & ~ws_ex_toolwindow) | ws_ex_appwindow
+            set_style(hwnd, gwl_exstyle, style)
+        except (AttributeError, OSError, tk.TclError) as e:
+            print(f"Taskbar integration warning: {e}")
+
+    def _bring_to_front(self):
+        """Request topmost placement and input focus for the controller."""
+        if not safe_widget_exists(self):
+            return
+        try:
+            self.attributes("-topmost", True)
+            self.lift()
+            self.focus_force()
+        except tk.TclError:
+            pass
 
     def _on_close(self):
         """Graceful shutdown: stop all block threads before destroying the window."""
@@ -891,12 +979,12 @@ class OverlayApp(tk.Tk):
                  bg=Theme.BG_TITLEBAR, fg=Theme.FG,
                  cursor="fleur").pack(side=tk.LEFT, padx=16, pady=12)
 
-        tk.Label(bar, text="v0.5",
+        tk.Label(bar, text="v0.6",
                  font=("Segoe UI", 8),
                  bg=Theme.BG_TITLEBAR, fg=Theme.FG_DIM,
                  cursor="fleur").pack(side=tk.LEFT, pady=12)
 
-        # Close button fills the full height of the title bar so it is square.
+        # Make the close button fill the title bar height.
         close_btn = tk.Label(bar, text="\u00d7",
                              font=("Segoe UI", 13),
                              bg=Theme.BG_TITLEBAR, fg=Theme.FG_DIM,
@@ -906,7 +994,7 @@ class OverlayApp(tk.Tk):
         close_btn.bind("<Enter>",    lambda e: close_btn.config(bg="#5a1a1a", fg=Theme.FG))
         close_btn.bind("<Leave>",    lambda e: close_btn.config(bg=Theme.BG_TITLEBAR, fg=Theme.FG_DIM))
 
-        # Drag handle: large grabbable area between title and close button.
+        # Visual drag handle beside the close button.
         tk.Label(bar, text="\u28FF",
                  font=("Segoe UI", 10),
                  bg=Theme.BG_TITLEBAR, fg=Theme.FG_DIM,
@@ -942,7 +1030,6 @@ class OverlayApp(tk.Tk):
         row = tk.Frame(self._content, bg=Theme.BG)
         row.pack(fill=tk.X, padx=16, pady=(0, 12))
 
-        # use_dynamic_color is a plain bool on the instance; no BooleanVar needed.
         self._dyn_btn = _flat_btn(row, "Static", self._toggle_dynamic,
                                   bg="#383838", fg=Theme.FG, padx=14, pady=6)
         self._dyn_btn.pack(side=tk.LEFT, padx=(0, 8))
@@ -1017,7 +1104,7 @@ class OverlayApp(tk.Tk):
                      font=("Segoe UI", 8),
                      bg=Theme.BG, fg=Theme.FG_DIM).pack(side=tk.LEFT, padx=8)
 
-        # Dynamic indicators legend — label on its own line, tags on the line below
+        # Dynamic indicators legend: label on its own line, tags on the line below
         # so nothing gets clipped at the panel edge.
         tk.Label(panel, text="Block indicators:",
                  font=("Segoe UI", 8),
@@ -1027,7 +1114,7 @@ class OverlayApp(tk.Tk):
         ind_row = tk.Frame(panel, bg=Theme.BG)
         ind_row.pack(fill=tk.X)
 
-        for tag, tip in [("D", "solid"), ("D+", "gradient"), ("D>", "transitioning")]:
+        for tag, tip in [("D", "solid"), ("D+", "gradient"), ("D>", "gradient transition")]:
             tk.Label(ind_row, text=tag,
                      font=("Consolas", 8),
                      bg=Theme.BG_INPUT, fg=Theme.ACCENT,
@@ -1053,9 +1140,7 @@ class OverlayApp(tk.Tk):
     # --- Dynamic mode toggle ---
 
     def _toggle_dynamic(self):
-        """Toggle between static and dynamic color detection.
-        Uses a plain bool (use_dynamic_color) rather than a BooleanVar,
-        since the value is never bound to a Checkbutton widget."""
+        """Toggle between static and dynamic color detection."""
         if not self.use_dynamic_color:
             confirmed = messagebox.askyesno(
                 "CPU Usage Warning",
@@ -1108,6 +1193,7 @@ class OverlayApp(tk.Tk):
 
             block = BlackBlock(self, x, y, w, h, self.current_color, self.use_dynamic_color)
             self.blocks.append(block)
+            self.after_idle(self._bring_to_front)
 
             mode = "dynamic" if self.use_dynamic_color else "static"
             print(f"Added {mode} block ({self.current_color}) at ({x},{y}) {w}x{h}")
@@ -1117,10 +1203,19 @@ class OverlayApp(tk.Tk):
             messagebox.showerror("Error", f"Failed to create block: {str(e)}")
 
     def cleanup_blocks(self):
-        self.blocks = [
-            b for b in self.blocks
-            if not getattr(b, '_is_destroyed', False) and safe_widget_exists(b)
-        ]
+        active_blocks = []
+        for block in self.blocks:
+            if not getattr(block, '_is_destroyed', False) and safe_widget_exists(block):
+                active_blocks.append(block)
+                continue
+
+            try:
+                block._is_destroyed = True
+                block.stop_dynamic_color()
+            except (tk.TclError, AttributeError):
+                pass
+
+        self.blocks = active_blocks
         self.after(5000, self.cleanup_blocks)
 
     def save_layout(self):
@@ -1184,6 +1279,7 @@ class OverlayApp(tk.Tk):
             if valid_blocks > 0:
                 self._layout_status.config(text=f"Loaded {valid_blocks} block{'s' if valid_blocks != 1 else ''}")
                 print(f"Loaded {valid_blocks} blocks from {self.config_file}")
+                self.after_idle(self._bring_to_front)
             else:
                 messagebox.showwarning("Empty Layout", "No valid blocks in layout file.")
 
