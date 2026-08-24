@@ -11,13 +11,13 @@ A Python application that creates draggable colored overlay blocks on your scree
 
 ## Download
 - **Windows**: Download the package from the **[releases page](https://github.com/mirbyte/StreamBlock/releases/latest)**
-- **Others**: Clone this project and run the .py *(non-Windows support is not tested)*
+- **Others**: Clone this project and run `python streamblock.py` *(non-Windows support is not tested)*
 
 ## Features
 - **Draggable & Resizable Blocks**: Create movable colored rectangles anywhere on your screen
 - **Always on Top**: Blocks stay visible over all other applications
 - **Color Customization**: Pick any static color per block
-- **Dynamic Color Mode**: Blocks automatically sample the 8 surrounding screen points and adapt their color or gradient in real time
+- **Dynamic Color Mode**: Blocks sample 8 surrounding screen points and adapt their color or gradient every 2 seconds
 - **Gradient Support**: When surrounding colors differ enough, the block renders a smooth multi-point gradient instead of a flat color
 - **Save/Load Layouts**: Preserve your block arrangements for future sessions
 - **DPI Aware**: Correct sizing and positioning on 4K and high-DPI displays
@@ -43,7 +43,7 @@ A small tag in the top-left corner of each dynamic block shows its current state
 |---|---|
 | `D` | Dynamic mode, solid color |
 | `D+` | Dynamic mode, gradient active |
-| `D>` | Dynamic mode, transitioning |
+| `D>` | Dynamic mode, transitioning to a gradient |
 
 ## Dependencies
 
@@ -51,7 +51,7 @@ A small tag in the top-left corner of each dynamic block shows its current state
 |---|---|
 | `tkinter` | GUI framework (Python standard library) |
 | `Pillow` | Image processing and gradient rendering |
-| `pywin32` | DPI awareness and screen metrics (Windows) |
+| `pywin32` *(optional)* | Windows screen metrics; `ctypes` fallback is built in |
 | `numpy` *(optional)* | Accelerated gradient computation, strongly recommended for dynamic mode |
 
 Install with:
@@ -60,8 +60,8 @@ pip install pillow pywin32 numpy
 ```
 
 ## Technical Details
-- **Thread model**: Color detection and animation run on background threads; Tkinter calls are made exclusively from the main thread via a `_ui_tick` polling loop
-- **Gradient rendering**: 8-point bilinear interpolation, vectorized with numpy when available and falling back to pure Python otherwise
+- **Thread model**: Color detection and animation run on background threads; background workers never call Tkinter, and animation redraws are handled by the main-thread `_ui_tick` loop
+- **Gradient rendering**: Piecewise 8-point interpolation, vectorized with NumPy when available and falling back to pure Python otherwise
 - **Screen sampling**: 12×12px grabs at 8 points around each block's edges every 2 seconds, with 1-second eased transitions between states
 - **Layout storage**: JSON
 
