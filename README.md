@@ -56,7 +56,7 @@ A small tag in the top-left corner of each dynamic block shows its current state
 
 Install with:
 ```
-pip install pillow pywin32 numpy
+pip install -r requirements.txt
 ```
 
 ## Technical Details
